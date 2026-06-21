@@ -1,38 +1,48 @@
 extends Node3D
 ## Greybox prototype world for "Braelynn: Shadow of the Shopkeep".
 ## DAY: walk around, enter the casino, spin the slot, drink at the bar.
-##      Drink until you pass out -> NIGHT begins and you wake as a ninja.
-## NIGHT: placeholder (one dummy target). Real stealth/combat comes later.
+##     Drink until you pass out -> NIGHT begins and you wake as a ninja.
+## NIGHT: samurai lawmen patrol the village. Sneak or fight to survive.
+##        Press F to attack (melee), avoid or kill them all.
 ##
-## Everything is built in code with placeholder boxes/capsules so the project
-## runs with zero imported art. Swap in the real Braelynn model later.
+## Everything built in code with placeholder shapes — no imported art needed.
 
 enum Phase { DAY, NIGHT }
 
 var phase: int = Phase.DAY
 var coins: int = 0
-var drunk: float = 0.0          # 0..100, hit 100 to pass out
+var drunk: float = 0.0
 const DRINK_PER_SIP := 22.0
 const INTERACT_RANGE := 3.5
 
 var player: CharacterBody3D
 var sun: DirectionalLight3D
 var env: Environment
-var enemy: Node3D
+var _samurai: Array = []
+var _kills: int = 0
 
-# Interactable world positions
 var slot_pos := Vector3(-4, 1, -19)
-var bar_pos := Vector3(5, 1, -15)
-var _active_interactable := ""   # "slot" | "bar" | ""
+var bar_pos  := Vector3(5, 1, -15)
+var _active_interactable := ""
 
 # UI
-var ui_prompt: Label
-var ui_status: Label
-var ui_slot: Label
-var ui_drunk: ProgressBar
-var fade: ColorRect
+var ui_prompt:  Label
+var ui_status:  Label
+var ui_slot:    Label
+var ui_drunk:   ProgressBar
+var ui_hp:      ProgressBar
+var ui_hp_lbl:  Label
+var ui_alert:   Label
+var fade:       ColorRect
 
 const SLOT_SYMBOLS := ["🍒", "💎", "🔔", "7", "🥷", "🍶"]
+
+# Samurai patrol routes (A, B pairs) — scattered around the village
+const SAMURAI_PATROLS := [
+	[Vector3(12, 0, -4),  Vector3(12, 0, -20)],
+	[Vector3(-12, 0, -6), Vector3(-12, 0, -22)],
+	[Vector3(0, 0, -18),  Vector3(6, 0, -5)],
+]
 
 func _ready() -> void:
 	_build_environment()
@@ -76,48 +86,42 @@ func _box(pos: Vector3, size: Vector3, color: Color, collide := true, emit := fa
 	return b
 
 func _build_world_geometry() -> void:
-	# Ground
 	_box(Vector3(0, -0.5, -8), Vector3(120, 1, 120), Color(0.30, 0.45, 0.25))
-	# A few feudal-village buildings to explore around (placeholder blocks)
-	_box(Vector3(-22, 2, 4), Vector3(8, 4, 8), Color(0.55, 0.40, 0.30))
-	_box(Vector3(20, 3, 6), Vector3(7, 6, 7), Color(0.50, 0.38, 0.28))
+	_box(Vector3(-22, 2, 4),   Vector3(8, 4, 8),  Color(0.55, 0.40, 0.30))
+	_box(Vector3(20, 3, 6),    Vector3(7, 6, 7),  Color(0.50, 0.38, 0.28))
 	_box(Vector3(-18, 2.5, -28), Vector3(9, 5, 9), Color(0.52, 0.39, 0.29))
-	_box(Vector3(24, 2, -24), Vector3(8, 4, 8), Color(0.54, 0.41, 0.31))
-	# Torii-ish marker near spawn (two posts + lintel)
+	_box(Vector3(24, 2, -24),  Vector3(8, 4, 8),  Color(0.54, 0.41, 0.31))
+	# Torii gate near spawn
 	_box(Vector3(-2.5, 2.5, 14), Vector3(0.5, 5, 0.5), Color(0.7, 0.15, 0.12))
-	_box(Vector3(2.5, 2.5, 14), Vector3(0.5, 5, 0.5), Color(0.7, 0.15, 0.12))
-	_box(Vector3(0, 5.2, 14), Vector3(6.5, 0.6, 0.6), Color(0.7, 0.15, 0.12))
+	_box(Vector3(2.5, 2.5, 14),  Vector3(0.5, 5, 0.5), Color(0.7, 0.15, 0.12))
+	_box(Vector3(0, 5.2, 14),    Vector3(6.5, 0.6, 0.6), Color(0.7, 0.15, 0.12))
 
 func _build_casino() -> void:
 	var wall := Color(0.20, 0.20, 0.26)
-	# Carpet floor pad
-	_box(Vector3(0, 0.05, -15), Vector3(16, 0.1, 16), Color(0.35, 0.05, 0.08))
-	# Walls (room centered at z=-15, gap doorway on the +z side at z=-7)
-	_box(Vector3(0, 2.5, -23), Vector3(16, 5, 0.5), wall)          # back
-	_box(Vector3(-8, 2.5, -15), Vector3(0.5, 5, 16), wall)         # left
-	_box(Vector3(8, 2.5, -15), Vector3(0.5, 5, 16), wall)          # right
-	_box(Vector3(-5, 2.5, -7), Vector3(6, 5, 0.5), wall)           # front-left
-	_box(Vector3(5, 2.5, -7), Vector3(6, 5, 0.5), wall)            # front-right (gap x:-2..2)
-	_box(Vector3(0, 5.25, -15), Vector3(16, 0.5, 16), wall)        # roof
-	# Glowing CASINO sign over the door
-	_box(Vector3(0, 5.6, -7), Vector3(5, 1, 0.3), Color(1.0, 0.1, 0.6), false, true)
-	# Interior light
+	_box(Vector3(0, 0.05, -15),  Vector3(16, 0.1, 16),  Color(0.35, 0.05, 0.08))
+	_box(Vector3(0, 2.5, -23),   Vector3(16, 5, 0.5),   wall)
+	_box(Vector3(-8, 2.5, -15),  Vector3(0.5, 5, 16),   wall)
+	_box(Vector3(8, 2.5, -15),   Vector3(0.5, 5, 16),   wall)
+	_box(Vector3(-5, 2.5, -7),   Vector3(6, 5, 0.5),    wall)
+	_box(Vector3(5, 2.5, -7),    Vector3(6, 5, 0.5),    wall)
+	_box(Vector3(0, 5.25, -15),  Vector3(16, 0.5, 16),  wall)
+	_box(Vector3(0, 5.6, -7),    Vector3(5, 1, 0.3), Color(1.0, 0.1, 0.6), false, true)
 	var lamp := OmniLight3D.new()
 	lamp.position = Vector3(0, 4.2, -15)
 	lamp.light_energy = 4.0
 	lamp.omni_range = 22.0
 	lamp.light_color = Color(1.0, 0.85, 0.6)
 	add_child(lamp)
-	# Slot machine (interactable)
 	_box(slot_pos, Vector3(1.2, 2, 0.8), Color(0.9, 0.1, 0.9), true, true)
-	# Bar (interactable)
-	_box(bar_pos, Vector3(4, 1.2, 1.5), Color(0.45, 0.28, 0.15))
+	_box(bar_pos,  Vector3(4, 1.2, 1.5), Color(0.45, 0.28, 0.15))
 
 func _spawn_player() -> void:
 	player = CharacterBody3D.new()
 	player.set_script(load("res://player.gd"))
 	player.position = Vector3(0, 0, 10)
 	add_child(player)
+	player.attack_triggered.connect(_on_player_attack)
+	player.died.connect(_on_player_died)
 
 # ---------------------------------------------------------------- UI
 func _label(text: String, pos: Vector2, size := 20) -> Label:
@@ -139,18 +143,47 @@ func _build_ui() -> void:
 
 	layer.add_child(_label("WASD move • Space jump • Mouse look • E interact • Esc cursor",
 		Vector2(20, 50), 14))
+	layer.add_child(_label("NIGHT: F to attack samurai", Vector2(20, 66), 14))
 
+	# Drunk meter
 	ui_drunk = ProgressBar.new()
 	ui_drunk.min_value = 0
 	ui_drunk.max_value = 100
 	ui_drunk.value = 0
 	ui_drunk.position = Vector2(20, 90)
-	ui_drunk.size = Vector2(260, 26)
+	ui_drunk.size = Vector2(220, 22)
 	layer.add_child(ui_drunk)
-	layer.add_child(_label("Drunk", Vector2(24, 92), 14))
+	layer.add_child(_label("Drunk", Vector2(24, 92), 13))
 
-	ui_slot = _label("", Vector2(20, 130), 26)
+	# HP bar (red)
+	ui_hp = ProgressBar.new()
+	ui_hp.min_value = 0
+	ui_hp.max_value = 100
+	ui_hp.value = 100
+	ui_hp.position = Vector2(20, 118)
+	ui_hp.size = Vector2(220, 22)
+	var hp_style := StyleBoxFlat.new()
+	hp_style.bg_color = Color(0.7, 0.1, 0.1)
+	ui_hp.add_theme_stylebox_override("fill", hp_style)
+	layer.add_child(ui_hp)
+	ui_hp_lbl = _label("HP", Vector2(24, 120), 13)
+	layer.add_child(ui_hp_lbl)
+	ui_hp.visible = false
+	ui_hp_lbl.visible = false
+
+	ui_slot = _label("", Vector2(20, 148), 26)
 	layer.add_child(ui_slot)
+
+	# Detection alert — centered, upper third
+	ui_alert = _label("! DETECTED !", Vector2(0, 0), 36)
+	ui_alert.add_theme_color_override("font_color", Color(1.0, 0.2, 0.1))
+	ui_alert.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	ui_alert.anchor_left = 0.0
+	ui_alert.anchor_right = 1.0
+	ui_alert.anchor_top = 0.18
+	ui_alert.offset_right = 0
+	ui_alert.visible = false
+	layer.add_child(ui_alert)
 
 	ui_prompt = _label("", Vector2(0, 0), 24)
 	ui_prompt.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -172,7 +205,23 @@ func _build_ui() -> void:
 # ---------------------------------------------------------------- loop
 func _process(_delta: float) -> void:
 	ui_drunk.value = drunk
-	ui_status.text = "%s  |  Coins: %d" % ["DAY" if phase == Phase.DAY else "NIGHT", coins]
+
+	var phase_str := "DAY" if phase == Phase.DAY else "NIGHT"
+	if phase == Phase.NIGHT:
+		ui_status.text = "%s  |  Kills: %d / %d" % [phase_str, _kills, len(SAMURAI_PATROLS)]
+	else:
+		ui_status.text = "%s  |  Coins: %d" % [phase_str, coins]
+
+	if player:
+		ui_hp.value = player.hp
+
+	# Detection flash
+	var alerted := false
+	for s in _samurai:
+		if is_instance_valid(s) and s.is_alerted():
+			alerted = true
+			break
+	ui_alert.visible = alerted and phase == Phase.NIGHT
 
 	_active_interactable = ""
 	if phase == Phase.DAY and player and not player.look_locked:
@@ -186,7 +235,10 @@ func _process(_delta: float) -> void:
 		else:
 			ui_prompt.text = ""
 	else:
-		ui_prompt.text = ""
+		if phase == Phase.NIGHT and player and not player.look_locked:
+			ui_prompt.text = "[F] Attack" if player._attack_timer <= 0 else ""
+		else:
+			ui_prompt.text = ""
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_E:
@@ -195,6 +247,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		elif _active_interactable == "bar":
 			_drink()
 
+# ---------------------------------------------------------------- day interactions
 func _spin_slot() -> void:
 	var a: String = SLOT_SYMBOLS.pick_random()
 	var b: String = SLOT_SYMBOLS.pick_random()
@@ -205,7 +258,8 @@ func _spin_slot() -> void:
 	elif a == b or b == c or a == c:
 		win = 20
 	coins += win
-	ui_slot.text = "[ %s | %s | %s ]  %s" % [a, b, c, ("JACKPOT! +100" if win == 100 else ("+%d" % win if win > 0 else "nothing"))]
+	var msg := "JACKPOT! +100" if win == 100 else ("+%d" % win if win > 0 else "nothing")
+	ui_slot.text = "[ %s | %s | %s ]  %s" % [a, b, c, msg]
 
 func _drink() -> void:
 	drunk = min(drunk + DRINK_PER_SIP, 100.0)
@@ -221,6 +275,8 @@ func _apply_day() -> void:
 	env.background_color = Color(0.45, 0.65, 0.95)
 	env.ambient_light_color = Color(0.6, 0.7, 0.85)
 	env.ambient_light_energy = 0.5
+	ui_hp.visible = false
+	ui_hp_lbl.visible = false
 
 func _apply_night() -> void:
 	phase = Phase.NIGHT
@@ -229,6 +285,8 @@ func _apply_night() -> void:
 	env.background_color = Color(0.03, 0.04, 0.10)
 	env.ambient_light_color = Color(0.1, 0.12, 0.25)
 	env.ambient_light_energy = 0.25
+	ui_hp.visible = true
+	ui_hp_lbl.visible = true
 
 func _pass_out() -> void:
 	player.look_locked = true
@@ -240,28 +298,101 @@ func _pass_out() -> void:
 	ui_status.text = "You drank yourself unconscious..."
 	await get_tree().create_timer(1.5).timeout
 
-	# Wake up at night, as a ninja
 	_apply_night()
 	drunk = 0.0
+	_kills = 0
 	player.global_position = Vector3(0, 0, 2)
 	player.rotation = Vector3.ZERO
 	player.set_ninja(true)
-	_spawn_night_enemy()
+	_spawn_samurai()
 
-	ui_status.text = "NIGHT — you awaken in ninja garb. (combat coming soon)"
+	ui_status.text = "NIGHT — samurai patrol the streets. Sneak past or cut them down."
 	var t2 := create_tween()
 	t2.tween_property(fade, "color:a", 0.0, 1.0)
 	await t2.finished
 	player.look_locked = false
 
-func _spawn_night_enemy() -> void:
-	if enemy and is_instance_valid(enemy):
-		return
-	enemy = MeshInstance3D.new()
-	var cap := CapsuleMesh.new()
-	cap.radius = 0.5
-	cap.height = 2.0
-	enemy.mesh = cap
-	enemy.material_override = _mat(Color(0.8, 0.1, 0.1))
-	enemy.position = Vector3(0, 1.0, -6)
-	add_child(enemy)
+# ---------------------------------------------------------------- samurai
+func _spawn_samurai() -> void:
+	for s in _samurai:
+		if is_instance_valid(s):
+			s.queue_free()
+	_samurai.clear()
+
+	for patrol in SAMURAI_PATROLS:
+		var s = CharacterBody3D.new()
+		s.set_script(load("res://samurai.gd"))
+		s.position = patrol[0]
+		add_child(s)
+		s.setup(patrol[0], patrol[1], player)
+		s.died.connect(_on_samurai_died)
+		_samurai.append(s)
+
+func _on_samurai_died() -> void:
+	_kills += 1
+	if _kills >= len(SAMURAI_PATROLS):
+		_all_samurai_defeated()
+
+func _all_samurai_defeated() -> void:
+	player.look_locked = true
+	ui_prompt.text = ""
+	ui_alert.visible = false
+	ui_slot.text = "All samurai defeated!"
+	await get_tree().create_timer(2.0).timeout
+
+	# Dawn: wake up back as civilian
+	var t := create_tween()
+	t.tween_property(fade, "color:a", 1.0, 1.2)
+	await t.finished
+	_apply_day()
+	player.set_ninja(false)
+	player.global_position = Vector3(0, 0, 10)
+	player.rotation = Vector3.ZERO
+	drunk = 0.0
+	ui_slot.text = ""
+	var t2 := create_tween()
+	t2.tween_property(fade, "color:a", 0.0, 1.0)
+	await t2.finished
+	player.look_locked = false
+	ui_status.text = "DAY  |  Coins: %d  (survived the night!)" % coins
+
+# ---------------------------------------------------------------- player combat
+func _on_player_attack(attacker_pos: Vector3, range: float, damage: int) -> void:
+	for s in _samurai:
+		if is_instance_valid(s) and s.state != 4:  # not DEAD
+			if attacker_pos.distance_to(s.global_position) <= range:
+				s.take_damage(damage)
+
+func _on_player_died() -> void:
+	player.look_locked = true
+	ui_alert.visible = false
+	ui_prompt.text = ""
+	ui_slot.text = "Braelynn has fallen..."
+	for s in _samurai:
+		if is_instance_valid(s):
+			s.state = 0  # back to patrol
+
+	var t := create_tween()
+	t.tween_property(fade, "color:a", 1.0, 1.5)
+	await t.finished
+	await get_tree().create_timer(1.0).timeout
+
+	# Respawn at day
+	_apply_day()
+	for s in _samurai:
+		if is_instance_valid(s):
+			s.queue_free()
+	_samurai.clear()
+	_kills = 0
+	player.hp = player.max_hp
+	player.set_ninja(false)
+	player.global_position = Vector3(0, 0, 10)
+	player.rotation = Vector3.ZERO
+	drunk = 0.0
+	ui_slot.text = ""
+
+	var t2 := create_tween()
+	t2.tween_property(fade, "color:a", 0.0, 1.0)
+	await t2.finished
+	player.look_locked = false
+	ui_status.text = "DAY  |  Coins: %d  (you were defeated...)" % coins
