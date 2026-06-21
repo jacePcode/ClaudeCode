@@ -1,0 +1,14 @@
+; Engine configuration file.
+; Braelynn: Shadow of the Shopkeep — greybox prototype (Godot 4.x)
+
+config_version=5
+
+[application]
+
+config/name="Braelynn: Shadow of the Shopkeep"
+run/main_scene="res://Main.tscn"
+config/features=PackedStringArray("4.3", "Forward Plus")
+
+[rendering]
+
+environment/defaults/default_clear_color=Color(0.4, 0.6, 0.9, 1)

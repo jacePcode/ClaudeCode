@@ -6,9 +6,15 @@
 
 Premise: Braelynn as a feudal-Japan commoner by day, ninja by night. Full design in `.agent/GAME_DESIGN.md`.
 
-## Phase: DESIGN locked → asset pipeline next (not yet building game code)
+## Phase: DAY prototype built (greybox) → NIGHT combat next
 
-The user wants the idea solid before building. Design is now locked. Next is producing the playable Braelynn 3D model via the Higgsfield → generate_3d → Mixamo → Godot pipeline.
+Scoped down per user: build the simple day loop first. A runnable Godot 4 greybox
+prototype now lives in `godot/` — walk around, enter a modern casino, spin a slot,
+drink until you pass out, wake at night as a ninja. Placeholder shapes (no art yet).
+NOT yet run in-engine (no Godot binary in this env).
+
+Next big pieces: (1) night antagonists + combat, (2) swap placeholder -> real
+Braelynn 3D model via the Higgsfield -> generate_3d -> Mixamo -> Godot pipeline.
 
 ## Status
 - [x] Concept locked: third-person stealth, feudal Japan, civilian/ninja double life
